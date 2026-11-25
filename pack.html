@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>หลังบ้าน – หยิบสินค้า / แพ็ค / จ่าหน้าพัสดุ</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="nav"><div class="wrap">
+  <a class="logo" href="index.html">🍜 บะหมี่ซด ซด</a>
+  <nav><a class="link" href="index.html">← กลับหน้าร้าน</a></nav>
+</div></header>
+
+<section><div class="wrap">
+  <h2>หยิบสินค้า · แพ็ค · จ่าหน้าพัสดุ</h2>
+  <div class="tabs" id="tabs">
+    <button data-s="pending" class="on">รอหยิบ</button>
+    <button data-s="picked">หยิบแล้ว (รอแพ็ค)</button>
+    <button data-s="shipped">แพ็ค/จ่าหน้าแล้ว</button>
+    <button data-s="all">ทั้งหมด</button>
+  </div>
+  <div class="pick noprint" id="pickList" style="margin-bottom:16px"></div>
+  <div id="list"></div>
+</div></section>
+
+<script src="app.js"></script>
+<script>
+let products = [], filter = "pending";
+const imgOf = (sku) => (products.find((p) => p.sku === sku) || {}).image || "";
+const stageLabel = { pending: ["รอหยิบ", "p"], picked: ["หยิบแล้ว", "k"], shipped: ["แพ็คแล้ว", "s"] };
+
+function trackingNo(o) { return "TH" + o.id.replace("ORD", "") + o.customer.zip + "9"; }
+
+function labelHTML(o) {
+  const c = o.customer;
+  const qty = o.items.reduce((s, i) => s + i.qty, 0);
+  return `<div class="label">
+    <div class="no">${trackingNo(o)}</div><div class="bar"></div>
+    <div>ผู้รับ / TO:</div>
+    <div class="to">${esc(c.name)} · ${esc(c.phone)}</div>
+    <div>${esc(c.address)} ${esc(c.zip)}</div>
+    <div class="from"><b>ผู้ส่ง:</b> ${esc(SHOP.name)} · ${esc(SHOP.phone)}<br>${esc(SHOP.address)}<br>
+    <b>ออเดอร์:</b> ${o.id} · <b>จำนวน:</b> ${qty} ซอง · <b>ของกิน – ระวังความชื้น</b></div>
+  </div>`;
+}
+
+function pickSummary(orders) {
+  const need = {};
+  orders.filter((o) => o.status === "pending").forEach((o) => o.items.forEach((i) => {
+    need[i.sku] = need[i.sku] || { name: i.name, qty: 0 }; need[i.sku].qty += i.qty;
+  }));
+  const rows = Object.entries(need);
+  document.getElementById("pickList").innerHTML = rows.length
+    ? `<b>รวมที่ต้องหยิบจากคลัง (ออเดอร์ที่รอหยิบ)</b><table class="items"><tr><th>SKU</th><th>สินค้า</th><th>จำนวน</th></tr>` +
+      rows.map(([sku, v]) => `<tr><td>${esc(sku)}</td><td><img src="${esc(imgOf(sku))}" alt="">${esc(v.name)}</td><td><b>${v.qty}</b> ซอง</td></tr>`).join("") + `</table>`
+    : "ไม่มีออเดอร์ที่รอหยิบ";
+}
+
+function render() {
+  const orders = getOrders();
+  pickSummary(orders);
+  const list = orders.filter((o) => filter === "all" || o.status === filter).reverse();
+  document.getElementById("list").innerHTML = list.length ? list.map((o) => {
+    const [t, k] = stageLabel[o.status];
+    const rows = o.items.map((i) => `<tr><td><label><input type="checkbox" class="chk" ${o.status === "pending" ? "" : "checked disabled"}> </label></td>
+      <td>${esc(i.sku)}</td><td><img src="${esc(imgOf(i.sku))}" alt="">${esc(i.name)}</td><td>${i.qty} ซอง</td><td>${baht(i.qty * i.price)}</td></tr>`).join("");
+    let act = "";
+    if (o.status === "pending") act = `<button class="btn dark" data-a="pick" data-id="${o.id}">✔ หยิบครบแล้ว</button>`;
+    if (o.status === "picked") act = `<button class="btn dark" data-a="pack" data-id="${o.id}">📦 แพ็คแล้ว + พิมพ์จ่าหน้า</button>`;
+    if (o.status === "shipped") act = `<button class="btn ghost" data-a="print" data-id="${o.id}">🖨 พิมพ์ใบจ่าหน้าอีกครั้ง</button>`;
+    return `<div class="order-card ${o.status === "shipped" ? "done" : ""}" id="${o.id}">
+      <div class="order-head"><b>${o.id}</b><span class="badge ${k}">${t}</span>
+        <span>${new Date(o.created).toLocaleString("th-TH")}</span></div>
+      <div>ลูกค้า: <b>${esc(o.customer.name)}</b> · ${esc(o.customer.phone)}</div>
+      <table class="items"><tr><th>หยิบ</th><th>SKU</th><th>สินค้า</th><th>จำนวน</th><th>รวม</th></tr>${rows}</table>
+      <div><b>ยอดรวม ${baht(o.total)}</b></div>
+      <div class="actions">${act}</div>
+      <div class="noprint">${o.status !== "pending" ? labelHTML(o) : ""}</div>
+    </div>`;
+  }).join("") : "<p>ยังไม่มีออเดอร์ในหมวดนี้ — ลองสั่งซื้อจากหน้าร้านก่อน</p>";
+}
+
+function printLabel(o) {
+  const w = document.createElement("div");
+  w.className = "print-only"; w.id = "printArea"; w.innerHTML = labelHTML(o);
+  document.body.appendChild(w);
+  document.querySelectorAll("section").forEach((s) => (s.classList.add("noprint")));
+  window.print();
+  w.remove();
+  document.querySelectorAll("section").forEach((s) => s.classList.remove("noprint"));
+}
+
+document.getElementById("list").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-a]"); if (!b) return;
+  const orders = getOrders(); const o = orders.find((x) => x.id === b.dataset.id);
+  const card = document.getElementById(o.id);
+  if (b.dataset.a === "pick") {
+    const boxes = [...card.querySelectorAll(".chk")];
+    if (!boxes.every((x) => x.checked)) { alert("กรุณาติ๊กตรวจว่าหยิบสินค้าครบทุกรายการก่อน"); return; }
+    o.status = "picked"; saveOrders(orders); render();
+  } else if (b.dataset.a === "pack") {
+    o.status = "shipped"; saveOrders(orders); render(); printLabel(o);
+  } else if (b.dataset.a === "print") printLabel(o);
+});
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  filter = b.dataset.s;
+  document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  render();
+});
+
+loadProducts().then((p) => { products = p; render(); }).catch(render);
+</script>
+</body>
+</html>
